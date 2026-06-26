@@ -1,405 +1,301 @@
-# OpenLink MCP Server for ODBC
+# DB Hydra MCP
 
-This document covers the set up and use of a generic ODBC server for the Model Context Protocol (MCP), referred to as an `mcp-odbc` server. It has been developed to provide Large Language Models with transparent access to ODBC-accessible data sources via a Data Source Name configured for a specific ODBC Connector (also called an ODBC Driver).
+Este repositório é uma adaptação local do projeto [OpenLinkSoftware/mcp-odbc-server](https://github.com/OpenLinkSoftware/mcp-odbc-server). O objetivo aqui não é substituir o upstream, e sim manter o projeto `DB-Hydra-MCP` como uma base operacional para uso pessoal e corporativo, com foco em consultas read-only a múltiplos bancos via MCP, segredos locais e operação em Linux com opção de containerização.
 
-![mcp-client-and-servers|648x499](https://www.openlinksw.com/data/gifs/mcp-client-and-servers.gif)
+O repositório de trabalho para publicação e evolução é [fRPenha/DB-Hydra-MCP](https://github.com/fRPenha/DB-Hydra-MCP).
 
-## Server Implementation
+## Objetivo
 
-This **MCP Server for ODBC** is a small TypeScript layer built on top of `node-odbc`. It routes calls to the host system's local ODBC Driver Manager via `node.js` (specifically using `npx` for TypeScript).
+- Expor vários bancos ODBC locais para clientes MCP por meio de perfis nomeados.
+- Permitir que agentes escolham explicitamente um perfil sem receber credenciais.
+- Manter credenciais, DSNs e arquivos ODBC fora do prompt e preferencialmente fora do diretório do projeto.
+- Forçar consultas somente leitura em todos os perfis.
 
-## Operating Environment Set Up & Prerequisites
+## Origem do Projeto
 
-While the examples that follow are oriented toward the Virtuoso ODBC Connector, this guide will also work with other ODBC Connectors. We *strongly* encourage code contributions and submissions of usage demos related to other database management systems (DBMS) for incorporation into this project.
+- Repositório de origem: `OpenLinkSoftware/mcp-odbc-server`
+- Estratégia deste fork: adaptar documentação, configuração e operação para um cenário local multi-banco, mantendo atribuição clara ao upstream.
 
-### Key System Components
+## Como o servidor funciona
 
-1. Check the `node.js` version. If it's not `21.1.0` or higher, upgrade or install explicitly using:
-   ```sh
-   nvm install v21.1.0
-   ```
-2. Install MCP components using: 
-   ```sh
-   npm install @modelcontextprotocol/sdk zod tsx odbc dotenv
-   ```
-3. Set the `nvm` version using: 
-   ```sh
-   nvm alias default 21.1.0
-   ```
+Cada conexão é definida como um perfil local. O agente MCP enxerga apenas metadados seguros e precisa informar o `profile` em cada chamada. O servidor resolve a conexão internamente, executa apenas leitura e registra auditoria com hash e resumo da query, sem armazenar SQL bruto nem credenciais.
 
-### Installation
+Tools principais:
 
-1. Run 
-   ```sh
-   git clone https://github.com/OpenLinkSoftware/mcp-odbc-server.git
-   ```
-2. Change directory 
-   ```sh
-   cd mcp-odbc-server
-   ```
-3. Run 
-   ```sh
-   npm init -y
-   ```
-4. Run 
-   ```sh
-   npm install @modelcontextprotocol/sdk zod tsx odbc dotenv
-   ```
+- `list_profiles`
+- `describe_profile`
+- `get_schemas`
+- `get_tables`
+- `describe_table`
+- `query_database`
+- `query_database_md`
+- `query_database_jsonl`
 
-### unixODBC Runtime Environment Checks
+## Segurança
 
-1. Check installation configuration (i.e., location of key INI files) by running: 
-   ```sh
-   odbcinst -j
-   ```
-2. List available data source names (DSNs) by running: 
-   ```sh
-   odbcinst -q -s
-   ```
+- O agente não deve receber `user`, `password` ou DSN como argumento de tool.
+- `describe_profile` expõe apenas metadados seguros.
+- Toda execução é tratada como `read-only`.
+- Logs de auditoria guardam hash e resumo da query, nunca o texto completo.
+- Para reduzir exposição, prefira usar um arquivo externo definido por `MCP_ODBC_ENV_FILE` em vez de um `.env` dentro do repositório.
 
-### Environment Variables
-As good security practice, you should use the `.env` file situated in the same directory as the `mcp-ser` to set bindings for the ODBC Data Source Name (`ODBC_DSN`), the User (`ODBC_USER`), the Password (`ODBC_PWD`), the ODBC INI (`ODBCINI`), and, if you want to use the OpenLink AI Layer (OPAL) via ODBC, the target Large Language Model (LLM) API Key (`API_KEY`).
+## Pré-requisitos locais
+
+- Node.js 21+
+- `unixODBC` instalado no host quando a execução for fora de container
+- DSNs válidos em `odbc.ini` e, quando necessário, drivers registrados em `odbcinst.ini`
+
+## Configuração local
+
+O arquivo `_env` é apenas um modelo seguro. O recomendado é manter o arquivo real fora do repositório, por exemplo:
 
 ```sh
-API_KEY=sk-xxx
-ODBC_DSN=Local Virtuoso
-ODBC_USER=dba
-ODBC_PASSWORD=dba
-ODBCINI=/Library/ODBC/odbc.ini 
+~/.config/mcp-odbc/profiles.env
+~/.config/mcp-odbc/odbc.ini
+~/.config/mcp-odbc/odbcinst.ini
 ```
 
-# Usage
+Exemplo de inicialização local:
 
-## Tools
-After successful installation, the following tools will be available to MCP client applications.
-
-### Overview
-
-|name                 |description|
-|:---                 |:---|
-|`get_schemas`        |List database schemas accessible to connected database management system (DBMS).|
-|`get_tables`         |List tables associated with a selected database schema.|
-|`describe_table`     |Provide the description of a table associated with a designated database schema. This includes information about column names, data types, null handling, autoincrement, primary key, and foreign keys|
-|`filter_table_names` |List tables associated with a selected database schema, based on a substring pattern from the `q` input field.|
-|`query_database`     |Execute a SQL query and return results in JSON Lines (JSONL) format.|
-|`execute_query`      |Execute a SQL query and return results in JSON Lines (JSONL) format.|
-|`execute_query_md`   |Execute a SQL query and return results in Markdown table format.|
-|`spasql_query`       |Execute a SPASQL query and return results.|
-|`sparql_query`       |Execute a SPARQL query and return results.|
-|`virtuoso_support_ai`|Interact with the Virtuoso Support Assistant/Agent — a Virtuoso-specific feature for interacting with LLMs|
-
-### Detailed Description
-
-- **`get_schemas`**
-  - Retrieve and return a list of all schema names from the connected database.
-  - Input parameters:
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns a JSON string array of schema names.
-
-- **`get_tables`**
-  - Retrieve and return a list containing information about tables in a specified schema. If no schema is provided, uses the connection's default schema.
-  - Input parameters:
-    - `schema` (string, optional): Database schema to filter tables. Defaults to connection default.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns a JSON string containing table information (e.g., `TABLE_CAT`, `TABLE_SCHEM`, `TABLE_NAME`, `TABLE_TYPE`).
-
-- **`filter_table_names`**
-  - Filters and returns information about tables whose names contain a specific substring.
-  - Input parameters:
-    - `q` (string, required): The substring to search for within table names.
-    - `schema` (string, optional): Database schema to filter tables. Defaults to connection default.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns a JSON string containing information for matching tables.
-
-- **`describe_table`**
-  - Retrieve and return detailed information about the columns of a specific table.
-  - Input parameters:
-    - `schema` (string, required): The database schema name containing the table.
-    - `table` (string, required): The name of the table to describe.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns a JSON string describing the table's columns (e.g., `COLUMN_NAME`, `TYPE_NAME`, `COLUMN_SIZE`, `IS_NULLABLE`).
-
-- **`query_database`**
-  - Execute a standard SQL query and return the results in JSON format.
-  - Input parameters:
-    - `query` (string, required): The SQL query string to execute.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns query results as a JSON string.
-
-- **`query_database_md`**
-  - Execute a standard SQL query and return the results formatted as a Markdown table.
-  - Input parameters:
-    - `query` (string, required): The SQL query string to execute.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns query results as a Markdown table string.
-
-- **`query_database_jsonl`**
-  - Execute a standard SQL query and return the results in JSON Lines (JSONL) format (one JSON object per line).
-  - Input parameters:
-    - `query` (string, required): The SQL query string to execute.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns query results as a JSONL string.
-
-- **`spasql_query`**
-  - Execute a SPASQL (SQL/SPARQL hybrid) query return results. This is a Virtuoso-specific feature.
-  - Input parameters:
-    - `query` (string, required): The SPASQL query string.
-    - `max_rows` (number, optional): Maximum number of rows to return. Defaults to `20`.
-    - `timeout` (number, optional): Query timeout in milliseconds. Defaults to `30000`, i.e., 30 seconds.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns the result from the underlying stored procedure call (e.g., `Demo.demo.execute_spasql_query`).
-
-- **`sparql_query`**
-  - Execute a SPARQL query and return results. This is a Virtuoso-specific feature.
-  - Input parameters:
-    - `query` (string, required): The SPARQL query string.
-    - `format` (string, optional): Desired result format. Defaults to `'json'`.
-    - `timeout` (number, optional): Query timeout in milliseconds. Defaults to `30000`, i.e., 30 seconds.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns the result from the underlying function call (e.g., `"UB".dba."sparqlQuery"`).
-
-- **`virtuoso_support_ai`**
-  - Utilizes a Virtuoso-specific AI Assistant function, passing a prompt and optional API key. This is a Virtuoso-specific feature.
-  - Input parameters:
-    - `prompt` (string, required): The prompt text for the AI function.
-    - `api_key` (string, optional): API key for the AI service. Defaults to `"none"`.
-    - `user` (string, optional): Database username. Defaults to `"demo"`.
-    - `password` (string, optional): Database password. Defaults to `"demo"`.
-    - `dsn` (string, optional): ODBC data source name. Defaults to `"Local Virtuoso"`.
-  - Returns the result from the AI Support Assistant function call (e.g., `DEMO.DBA.OAI_VIRTUOSO_SUPPORT_AI`).
-
-## Basic Installation Testing & Troubleshooting
-
-### MCP Inspector Tool
-
-#### Canonical MCP Inspector Tool Edition
-
-1. Start the inspector from the mcp-server directory/folder using the following command:
-    ```sh
-    ODBCINI=/Library/ODBC/odbc.ini npx -y @modelcontextprotocol/inspector npx tsx ./src/main.ts 
-    ```
-2. Click on the "Connect" button, then click on the "Tools" tab to get started.
-
-    [![MCP Inspector](https://www.openlinksw.com/data/screenshots/mcp-server-inspector-demo-1.png)](https://www.openlinksw.com/data/screenshots/mcp-server-inspector-demo-1.png)
-
-#### OpenLink MCP Inspector Tool Edition
-
-This is a fork of the canonical edition that includes a JSON handling bug fix related to use with this MCP Server.
-
-1. run
-   ```sh
-   git clone git@github.com:OpenLinkSoftware/inspector.git
-   cd inspector
-   ```
-2. run
-   ```sh
-   npm run start
-   ```
-3. Provide the following value in the `Arguments` input field of MCP Inspectors UI from http://localhost:6274
-   ```sh
-   tsx /path/to/mcp-odbc-server/src/main.ts
-   ```
-4. Click on the `Connect` button to initialize your session with the designated MCP Server
-
-
-### Apple Silicon (ARM64) Compatibility with MCP ODBC Server Issues
-
-#### Node x86_64 vs arm64 Conflict Issue
-
-The x86_64 rather than arm64 edition of `node` may be in place, but the ODBC bridge and MCP server are arm64-based components.
-
-You can solve this problem by performing the following steps:
-
-1. Uninstall the x86_64 edition of `node` by running:
-   ```sh
-    nvm uninstall 21.1.0
-   ```
-2. Run the following command to confirm your current shell is in arm64 mode:
-   ```sh
-   arch
-   ```
-   - if that returns x86_64, then run the following command to change the active mode:
-     ```
-     arch arm64
-     ```
-3. Install the arm64 edition of `node` by running:
-   ```sh
-   nvm install 21.1.0
-   ```
-
-#### Node to ODBC Bridge Layer Incompatibility
-
-When attempting to use a Model Context Protocol (MCP) ODBC Server on Apple Silicon machines, you may encounter architecture mismatch errors. These occur because the `Node.js` ODBC native module (`odbc.node`) is compiled for ARM64 architecture, but the x86_64-based edition of the unixODBC runtime is being loaded.
-
-Typical error message:
-
-```
-Error: dlopen(...odbc.node, 0x0001): tried: '...odbc.node' (mach-o file, but is an incompatible architecture (have 'x86_64', need 'arm64e' or 'arm64'))
+```sh
+npm install
+npm run build
+MCP_ODBC_ENV_FILE=$HOME/.config/mcp-odbc/profiles.env \
+ODBCINI=$HOME/.config/mcp-odbc/odbc.ini \
+ODBCSYSINI=$HOME/.config/mcp-odbc \
+ODBCINSTINI=odbcinst.ini \
+node dist/db-hydra-mcp.js
 ```
 
-You solve this problem by performing the following steps:
+Formato esperado no arquivo de perfis:
 
-1. Verify your `Node.js` is running in ARM64 mode:
+```env
+MCP_ODBC_PROFILE_NAMES=oracle_erp_dev,postgres_portal_hml
+MCP_ODBC_DEFAULT_PROFILE=postgres_portal_hml
 
-   ```bash
-   node -p "process.arch"  # Should output: `arm64`
-   ```
+MCP_ODBC_PROFILE_ORACLE_ERP_DEV_LABEL=ERP Oracle DEV
+MCP_ODBC_PROFILE_ORACLE_ERP_DEV_ENGINE=oracle
+MCP_ODBC_PROFILE_ORACLE_ERP_DEV_DSN=oracle_erp_dev
+MCP_ODBC_PROFILE_ORACLE_ERP_DEV_USER=usuario_local
+MCP_ODBC_PROFILE_ORACLE_ERP_DEV_PASSWORD=trocar-localmente
 
-2. Install unixODBC for ARM64:
+MCP_ODBC_PROFILE_POSTGRES_PORTAL_HML_LABEL=Portal PostgreSQL HML
+MCP_ODBC_PROFILE_POSTGRES_PORTAL_HML_ENGINE=postgresql
+MCP_ODBC_PROFILE_POSTGRES_PORTAL_HML_DSN=postgres_portal_hml
+MCP_ODBC_PROFILE_POSTGRES_PORTAL_HML_USER=postgres
+MCP_ODBC_PROFILE_POSTGRES_PORTAL_HML_PASSWORD=trocar-localmente
+```
 
-   ```bash
-   # Verify Homebrew is running in ARM64 mode
-   which brew  # Should point to /opt/homebrew/bin/brew
-   
-   # Remove existing unixODBC
-   brew uninstall --force unixodbc
-   
-   # Install ARM64 version
-   arch -arm64 brew install unixodbc
-   ```
+## Uso com clientes MCP
 
-3. Rebuild the Node.js ODBC module for ARM64:
+Fluxo recomendado:
 
-   ```bash
-   # Navigate to your project
-   cd /path/to/mcp-odbc-server
-   
-   # Remove existing module
-   rm -rf node_modules/odbc
-   
-   # Set architecture environment variable
-   export npm_config_arch=arm64
-   
-   # Reinstall with force build
-   npm install odbc --build-from-source
-   ```
+1. Chame `list_profiles`.
+2. Inspecione um perfil com `describe_profile`.
+3. Execute a consulta sempre com `profile` explícito.
 
-4. Verify the module is now ARM64:
-
-   ```bash
-   file node_modules/odbc/lib/bindings/napi-v8/odbc.node
-   # Should show "arm64" instead of "x86_64"
-   ```
-
-#### Key Points
-
-- Both unixODBC and the `Node.js` ODBC module must be ARM64-compatible
-- Using environment variables (`export npm_config_arch=arm64`) is more reliable than `npm config` commands
-- Always verify architecture with the `file` command or `node -p "process.arch"`
-- When using Homebrew on Apple Silicon, commands can be prefixed with `arch -arm64` to force use of ARM64 binaries
-
-## MCP Application Usage
-
-### Claude Desktop Configuration
-
-The path for this config file is: `~{username}/Library/Application Support/Claude/claude_desktop_config.json`.
+Exemplo conceitual:
 
 ```json
 {
-    "mcpServers": {
-        "ODBC": {
-            "command": "/path/to/.nvm/versions/node/v21.1.0/bin/node",
-            "args": [
-                "/path/to/mcp-odbc-server/node_modules/.bin/tsx",
-                "/path/to/mcp-odbc-server/src/main.ts"
-            ],
-            "env": {
-                "ODBCINI": "/Library/ODBC/odbc.ini",
-                "NODE_VERSION": "v21.1.0",
-                "PATH": "~/.nvm/versions/node/v21.1.0/bin:${PATH}"
-            },
-            "disabled": false,
-            "autoApprove": []
-        }
-    }
+  "tool": "query_database",
+  "arguments": {
+    "profile": "postgres_portal_hml",
+    "query": "select * from pnf fetch first 10 rows only",
+    "format": "json"
+  }
 }
 ```
 
-### Claude Desktop Usage
+## Para agentes de desenvolvimento
 
-1. Start the application.
-2. Apply configuration (from above) via Settings | Developer user interface.
-3. Ensure you have a working ODBC connection to a Data Source Name (DSN).
-4. Present a prompt requesting query execution, e.g.,
-   ```
-   Execute the following query: SELECT TOP * from Demo..Customers
-   ```
+Este MCP foi desenhado para que o agente consulte bancos locais por perfis nomeados, sem acesso a credenciais. O agente deve tratar o servidor como uma camada segura de consulta read-only e nunca tentar descobrir segredos por prompt, tool ou análise de erro.
 
-    [![Claude Desktop](https://www.openlinksw.com/data/screenshots/claude-desktp-mcp-odbc-server-demo-1.png)](https://www.openlinksw.com/data/screenshots/claude-desktp-mcp-odbc-server-demo-1.png)
+Fluxo obrigatório para uso correto:
 
-### Cline (Visual Studio Extension) Configuration
+1. Execute `list_profiles` para descobrir quais perfis existem.
+2. Execute `describe_profile` para entender engine, limites e se o perfil é o padrão.
+3. Antes de consultar dados de negócio, descubra a estrutura com `get_schemas`, `get_tables` e `describe_table`.
+4. Só depois execute `query_database`, `query_database_md` ou `query_database_jsonl`.
+5. Em consultas entre sistemas diferentes, faça uma etapa por perfil e carregue a chave de negócio de um banco para o outro.
 
-The path for this config file is: `~{username}/Library/Application\ Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+Regras operacionais para o agente:
+
+- Sempre informe `profile` explicitamente, mesmo quando houver perfil padrão.
+- Nunca assuma nome de tabela, coluna ou schema sem inspecionar antes.
+- Nunca solicite `user`, `password`, DSN completo ou conteúdo do `.env`.
+- Considere que todos os perfis são `read-only`.
+- Em caso de dúvida sobre um campo de negócio, use `describe_table` antes da query.
+
+Exemplos de pedidos que um agente pode executar:
+
+- `Liste os perfis disponíveis e descreva o profile oracle_erp_hml.`
+- `No profile kace, descubra em qual tabela está o chamado 341655 e resuma status, responsável e histórico.`
+- `No profile postgres_portal_hml, encontre a chave X e depois consulte o profile oracle_erp_hml para correlacionar o documento.`
+
+## Checklist de integração
+
+Antes de registrar este servidor em outro agente, valide:
+
+1. O container `db-hydra-mcp` está em execução.
+2. Os arquivos `profiles.env`, `odbc.ini` e `odbcinst.ini` apontam para conexões válidas.
+3. Drivers adicionais necessários, como Oracle ODBC, estão disponíveis no host/container.
+4. O cliente MCP está configurado para iniciar o servidor via `docker exec -i`.
+5. A validação inicial com `list_profiles` funciona sem erro.
+
+## Playbook rápido para outro agente
+
+Você pode reutilizar o texto abaixo como instrução operacional em outro agente de desenvolvimento:
+
+```text
+Use o servidor MCP "db-hydra-local" como camada de consulta read-only a bancos locais.
+
+Regras:
+- nunca peça credenciais;
+- nunca tente ler .env, odbc.ini ou segredos do host;
+- sempre descubra os perfis com list_profiles;
+- sempre descreva o perfil com describe_profile antes de consultar;
+- sempre inspecione schema/tabelas/colunas com get_schemas, get_tables e describe_table antes de assumir a estrutura;
+- sempre informe o argumento profile explicitamente nas queries;
+- faça correlações entre bancos em etapas, um profile por vez;
+- responda com resumo objetivo dos dados encontrados e destaque limitações quando a estrutura não for suficiente.
+```
+
+## Containerização local
+
+Esta implementação adiciona um fluxo operacional para Docker/Linux sem embutir segredos na imagem. O container fica residente com `restart: unless-stopped`, e o cliente MCP inicia o processo sob demanda com `docker exec -i`, preservando o transporte `stdio`.
+
+### Estrutura recomendada fora do repositório
+
+```sh
+~/.config/mcp-odbc/
+  profiles.env
+  odbc.ini
+  odbcinst.ini
+  drivers/
+```
+
+`drivers/` é útil principalmente para Oracle ou outros drivers proprietários.
+
+### Subindo o container
+
+1. Copie `docker/compose.env.example` para `docker/.env.compose`.
+2. Ajuste os caminhos locais dos arquivos ODBC e do diretório de drivers.
+3. Execute:
+
+```sh
+docker compose --env-file docker/.env.compose up -d --build
+```
+
+O serviço sobe em modo residente e reinicia automaticamente após reboot, desde que o Docker esteja habilitado no host:
+
+```sh
+sudo systemctl enable docker
+```
+
+### Quickstart com arquivos locais do repositório
+
+Se você já possui `.env`, `odbc.ini` e `odbcinst.ini` locais neste repositório, pode subir o container sem mover os arquivos:
+
+```sh
+cat > docker/.env.compose <<'EOF'
+MCP_ODBC_ENV_SOURCE=./.env
+MCP_ODBC_INI_SOURCE=./odbc.ini
+MCP_ODBCINST_SOURCE=./odbcinst.ini
+MCP_ODBC_DRIVERS_SOURCE=./docker/drivers
+EOF
+
+mkdir -p docker/drivers
+docker compose --env-file docker/.env.compose up -d --build
+```
+
+Nesse modo, o container usa os arquivos locais já existentes e continua com `restart: unless-stopped`.
+
+### Registrando no agente MCP
+
+Exemplo de configuração do cliente para usar o container já em execução:
 
 ```json
 {
   "mcpServers": {
-    "ODBC": {
-      "command": "/path/to/.nvm/versions/node/v21.1.0/bin/node",
+    "db-hydra-local": {
+      "command": "docker",
       "args": [
-        "/path/to/mcp-odbc-server/node_modules/.bin/tsx",
-        "/path/to/mcp-odbc-server/src/main.ts"
-      ],
-      "env": {
-        "ODBCINI": "/Library/ODBC/odbc.ini",
-        "NODE_VERSION": "v21.1.0",
-        "PATH": "/path/to/.nvm/versions/node/v21.1.0/bin:${PATH}"
-      },
-      "disabled": false,
-      "autoApprove": []
+        "exec",
+        "-i",
+        "db-hydra-mcp",
+        "node",
+        "/app/dist/db-hydra-mcp.js"
+      ]
     }
   }
 }
 ```
 
-### Cline (Visual Studio Extension) Usage
+Esse modelo é o mais adequado para `stdio`: o container permanece pronto no host, e cada sessão MCP cria um processo novo dentro dele.
 
-1. Use Shift+Command+`P` to open the Command Palette.
-2. Type in: `Cline`.
-3. Select: `Cline View`, which opens the Cline UI in the VSCode sidebar.
-4. Use the four-squares icon to access the UI for installing and configuring MCP servers.
-6. Apply the Cline Config (from above).
-7. Return to the extension's main UI and start a new task requesting processing of the following prompt:
-   ```
-   "Execute the following query: SELECT TOP 5 * from Demo..Customers"
-   ```
+Exemplo mínimo de validação depois do registro:
 
-    [![Cline Extension](https://www.openlinksw.com/data/screenshots/cline-extension-mcp-server-odbc-demo-1.png)](https://www.openlinksw.com/data/screenshots/cline-extension-mcp-server-odbc-demo-1.png)
+1. Abra o cliente MCP e confirme que o servidor `db-hydra-local` aparece como disponível.
+2. Execute `list_profiles`.
+3. Execute `describe_profile` em um perfil conhecido, por exemplo `kace`.
+4. Execute `get_tables` ou `describe_table` antes da primeira query real.
 
-### Cursor Configuration
+## Drivers e bancos
 
-Use the settings gear to open the configuration menu that includes the MCP menu item for registering and configuring `mcp servers`.
+Suporte inicial pensado para:
 
-### Cursor Usage
+- Oracle via driver ODBC externo
+- PostgreSQL
+- MariaDB
+- MySQL compatível com ODBC
 
-1. Use the Command+`I` or Control+`I` key combination to open the Chat Interface.
-2. Select `Agent` from the drop-down at the bottom left of the UI, where the default is `Ask`.
-3. Enter your prompt, qualifying the use of the `mcp-server for odbc` using the pattern: `@odbc {rest-of-prompt}`.
-4. Click on "Accept" to execute the prompt.
-   
-   [![Cursor Editor](https://www.openlinksw.com/data/screenshots/cursor-editor-mcp-config-for-odbc-server-1.png)](https://www.openlinksw.com/data/screenshots/cursor-editor-mcp-config-for-odbc-server-1.png)
+A imagem instala `unixODBC` e drivers livres para PostgreSQL e MariaDB. O perfil MySQL deste repositório usa o driver `MariaDB Unicode`, que normalmente funciona com servidores MySQL compatíveis.
 
-# Related
+O único caso que continua exigindo binário externo adicional é o Oracle.
 
-* [MCP Inspector Usage Screencast](https://www.openlinksw.com/data/screencasts/mcp-inspector-odbc-sparql-spasql-demo-1.mp4)
-* [Basic Claude Desktop Usage Screencast](https://www.openlinksw.com/data/screencasts/claude-odbc-mcp-sql-spasql-demo-1.mp4)
-* [Basic Cline Visual Studio Code Extension Usage Screencast](https://www.openlinksw.com/data/screencasts/cline-vscode-mcp-odbc-sql-spasql-1.mp4)
-* [Basic Cursor Editor Usage Screencast](https://www.openlinksw.com/data/screencasts/cursor-odbc-mcp-sql-spasql-demo-1.mp4)
+### Dependência adicional para Oracle
+
+Para perfis Oracle, o operador precisa baixar localmente o Oracle Instant Client e o Oracle Instant Client ODBC e disponibilizar esse conteúdo em um caminho montado como `docker/drivers/oracle/`.
+
+O repositório não publica binários, bibliotecas nem arquivos Oracle proprietários. Ele apenas reserva a estrutura esperada e a configuração do container.
+
+Se o driver Oracle não estiver presente, o container continua subindo normalmente, mas qualquer tentativa de usar perfis Oracle falhará com erro de biblioteca ausente.
+
+Depois de disponibilizar os arquivos localmente, reaplique a imagem:
+
+```sh
+docker compose --env-file docker/.env.compose up -d --build
+```
+
+## Verificação rápida
+
+Local:
+
+```sh
+npm test
+npm run build
+```
+
+Container:
+
+```sh
+docker compose --env-file docker/.env.compose ps
+docker compose --env-file docker/.env.compose logs --tail=100 db-hydra-mcp
+docker exec -i db-hydra-mcp node /app/dist/db-hydra-mcp.js
+```
+
+## Estrutura relevante do repositório
+
+- `src/main.ts`: servidor MCP
+- `src/config.ts`: perfis e resolução de configuração
+- `src/security.ts`: política read-only e auditoria
+- `src/env.ts`: carregamento de ambiente com suporte a arquivo externo
+- `compose.yaml`: execução containerizada local
+- `Dockerfile`: imagem base do runtime
+
+## Observações
+
+- `.env`, `odbc.ini` e `odbcinst.ini` reais não devem ser versionados.
+- Esta base continua compatível com execução local direta em Linux.
+- A containerização complementa o uso local; ela não substitui o modelo `stdio` do MCP.

@@ -1,0 +1,9 @@
+.nomos/
+.env
+odbc.ini
+odbcinst.ini
+docker/.env.compose
+node_modules/
+dist/
+docker/drivers/oracle/*
+!docker/drivers/oracle/README.md

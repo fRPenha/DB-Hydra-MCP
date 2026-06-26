@@ -1,19 +1,24 @@
 {
-  "name": "mcp-odbc-server",
+  "name": "db-hydra-mcp",
   "version": "1.0.0",
   "description": "",
   "type": "module",
   "bin": {
-    "mcp-odbc-server": "./src/main.ts"
+    "db-hydra-mcp": "./src/main.ts"
   },
   "files": [
     "dist"
   ],
   "scripts": {
     "start": "tsx src/main.ts",
+    "start:dist": "node dist/db-hydra-mcp.js",
     "prepare": "npm run build",
-    "build": "tsc -p tsconfig.json && mv dist/main.js dist/mcp-odbc-server.js && sh -c '[ -f .env ] || cp _env .env'",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -p tsconfig.json && mv dist/main.js dist/db-hydra-mcp.js && sh -c '[ -f .env ] || cp _env .env'",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose --env-file docker/.env.compose up -d --build",
+    "docker:down": "docker compose --env-file docker/.env.compose down",
+    "docker:logs": "docker compose --env-file docker/.env.compose logs --tail=100 -f db-hydra-mcp"
   },
   "keywords": [],
   "author": "",

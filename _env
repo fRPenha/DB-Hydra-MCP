@@ -1,5 +1,36 @@
-API_KEY=sk-***
-ODBC_USER=demo
-ODBC_PASSWORD=demo
-ODBC_DSN=Local Virtuoso
-ODBCINI=/Library/ODBC/odbc.ini
+# Example only. Copy to a local env file and replace placeholder values.
+# Suggested path outside the repository: ~/.config/mcp-odbc/profiles.env
+# Do not commit real usernames, passwords, DSNs, or API keys.
+
+API_KEY=sk-replace-locally-if-needed
+ODBCINI=/path/to/odbc.ini
+
+MCP_ODBC_PROFILE_NAMES=analytics,finance
+MCP_ODBC_DEFAULT_PROFILE=analytics
+
+MCP_ODBC_PROFILE_ANALYTICS_LABEL=Analytics Warehouse
+MCP_ODBC_PROFILE_ANALYTICS_ENGINE=odbc
+MCP_ODBC_PROFILE_ANALYTICS_DSN=AnalyticsDSN
+MCP_ODBC_PROFILE_ANALYTICS_USER=analytics_reader
+MCP_ODBC_PROFILE_ANALYTICS_PASSWORD=replace-locally
+# Optional compatibility field. Runtime is always read-only.
+MCP_ODBC_PROFILE_ANALYTICS_READ_ONLY=true
+MCP_ODBC_PROFILE_ANALYTICS_MAX_ROWS=100
+MCP_ODBC_PROFILE_ANALYTICS_TIMEOUT_MS=30000
+
+MCP_ODBC_PROFILE_FINANCE_LABEL=Finance Replica
+MCP_ODBC_PROFILE_FINANCE_ENGINE=odbc
+MCP_ODBC_PROFILE_FINANCE_DSN=FinanceReplicaDSN
+MCP_ODBC_PROFILE_FINANCE_USER=finance_reader
+MCP_ODBC_PROFILE_FINANCE_PASSWORD=replace-locally
+MCP_ODBC_PROFILE_FINANCE_READ_ONLY=true
+MCP_ODBC_PROFILE_FINANCE_MAX_ROWS=50
+MCP_ODBC_PROFILE_FINANCE_TIMEOUT_MS=15000
+
+# Legacy single-profile compatibility only. Prefer the multi-profile settings above.
+# ODBC_DSN=LegacyDSN
+# ODBC_USER=legacy_reader
+# ODBC_PASSWORD=replace-locally
+# ODBC_READ_ONLY=true
+# ODBC_MAX_ROWS=100
+# ODBC_TIMEOUT_MS=30000
