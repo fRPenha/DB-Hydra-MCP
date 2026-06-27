@@ -1,0 +1,20 @@
+services:
+  db-hydra-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: db-hydra-mcp
+    init: true
+    restart: unless-stopped
+    environment:
+      MCP_ODBC_ENV_FILE: /run/secrets/mcp-odbc.env
+      ODBCINI: /run/odbc/odbc.ini
+      ODBCSYSINI: /run/odbc
+      ODBCINSTINI: odbcinst.ini
+      LD_LIBRARY_PATH: /opt/odbc-drivers/oracle/instantclient_23_26
+      TNS_ADMIN: /opt/odbc-drivers/oracle/instantclient_23_26/network/admin
+    volumes:
+      - ${MCP_ODBC_ENV_SOURCE}:/run/secrets/mcp-odbc.env:ro
+      - ${MCP_ODBC_INI_SOURCE}:/run/odbc/odbc.ini:ro
+      - ${MCP_ODBCINST_SOURCE}:/run/odbc/odbcinst.ini:ro
+      - ${MCP_ODBC_DRIVERS_SOURCE}:/opt/odbc-drivers:ro
