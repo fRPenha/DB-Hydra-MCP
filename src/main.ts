@@ -111,13 +111,24 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 
 async function withProfileConnection<T>(
   profile: DatabaseProfile,
+  label: string,
   operation: (connection: odbc.Connection) => Promise<T>,
 ): Promise<T> {
   let connection: odbc.Connection | undefined;
   try {
-    connection = await odbc.connect(`DSN=${profile.dsn};UID=${profile.user};PWD=${profile.password}`);
-    return await operation(connection);
+    return await withTimeout(
+      (async () => {
+        connection = await odbc.connect(`DSN=${profile.dsn};UID=${profile.user};PWD=${profile.password}`);
+        return await operation(connection);
+      })(),
+      profile.timeoutMs,
+      label,
+    );
   } finally {
+    // ponytail: se o connect() ainda estiver pendurado quando o timeout vence, a
+    // conexao so sera fechada quando (se) o driver nativo eventualmente resolver.
+    // Nao ha API de cancelamento no pacote odbc; aceitavel pois o timeout ja evita
+    // que a chamada MCP fique presa ate o timeout de TCP do SO.
     await closeConnection(connection);
   }
 }
@@ -139,8 +150,7 @@ function logAudit(
     success,
   });
 
-  const output = success ? console.log : console.error;
-  output(JSON.stringify(entry));
+  console.error(JSON.stringify(entry));
 }
 
 async function supportsCatalogs(connection: odbc.Connection): Promise<boolean> {
@@ -165,8 +175,8 @@ async function executeRowsTool({
   try {
     const profile = resolveProfileSelection(profileRegistry, profileName);
     auditProfileName = profile.name;
-    const rows = await withProfileConnection(profile, async (connection) => {
-      const result = await withTimeout(operation(connection, profile), profile.timeoutMs, toolName);
+    const rows = await withProfileConnection(profile, toolName, async (connection) => {
+      const result = await operation(connection, profile);
       return clampRows(normalizeRows(result), profile.maxRows);
     });
 
@@ -191,8 +201,8 @@ async function executeQueryTool({
     const profile = resolveProfileSelection(profileRegistry, profileName);
     auditProfileName = profile.name;
     enforceReadOnlyPolicy(profile.name, query);
-    const rows = await withProfileConnection(profile, async (connection) => {
-      const result = await withTimeout(connection.query(query), profile.timeoutMs, toolName);
+    const rows = await withProfileConnection(profile, toolName, async (connection) => {
+      const result = await connection.query(query);
       return clampRows(normalizeRows(result), profile.maxRows);
     });
 
@@ -216,9 +226,7 @@ async function executeScalarTool({
   try {
     const profile = resolveProfileSelection(profileRegistry, profileName);
     auditProfileName = profile.name;
-    const result = await withProfileConnection(profile, async (connection) => {
-      return withTimeout(operation(connection, profile), profile.timeoutMs, toolName);
-    });
+    const result = await withProfileConnection(profile, toolName, (connection) => operation(connection, profile));
 
     logAudit(toolName, profile.name, auditQuery, Date.now() - startedAt, 1, true);
     return textResult(result);

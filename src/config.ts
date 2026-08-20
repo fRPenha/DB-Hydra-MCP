@@ -90,44 +90,59 @@ export function createProfileRegistry(env: EnvMap): ProfileRegistry {
 
   for (const profileName of uniqueNames) {
     const isLegacyProfile = profileName === LEGACY_DEFAULT_PROFILE_NAME && legacyProfileConfigured;
-    const profile: DatabaseProfile = {
-      name: profileName,
-      label: isLegacyProfile
-        ? "Default"
-        : env[profileEnvKey(profileName, "LABEL")]?.trim() || profileName,
-      engine: isLegacyProfile
-        ? env.ODBC_ENGINE?.trim() || DEFAULT_ENGINE
-        : env[profileEnvKey(profileName, "ENGINE")]?.trim() || DEFAULT_ENGINE,
-      dsn: isLegacyProfile
-        ? readRequired(env, "ODBC_DSN", profileName)
-        : readRequired(env, profileEnvKey(profileName, "DSN"), profileName),
-      user: isLegacyProfile
-        ? readRequired(env, "ODBC_USER", profileName)
-        : readRequired(env, profileEnvKey(profileName, "USER"), profileName),
-      password: isLegacyProfile
-        ? readRequired(env, "ODBC_PASSWORD", profileName)
-        : readRequired(env, profileEnvKey(profileName, "PASSWORD"), profileName),
-      readOnly: true,
-      maxRows: isLegacyProfile
-        ? parseNumber(env.ODBC_MAX_ROWS, DEFAULT_MAX_ROWS)
-        : parseNumber(env[profileEnvKey(profileName, "MAX_ROWS")], DEFAULT_MAX_ROWS),
-      timeoutMs: isLegacyProfile
-        ? parseNumber(env.ODBC_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)
-        : parseNumber(env[profileEnvKey(profileName, "TIMEOUT_MS")], DEFAULT_TIMEOUT_MS),
-      isDefault: profileName === defaultProfileName,
-    };
 
-    profiles.set(profileName, profile);
+    try {
+      const profile: DatabaseProfile = {
+        name: profileName,
+        label: isLegacyProfile
+          ? "Default"
+          : env[profileEnvKey(profileName, "LABEL")]?.trim() || profileName,
+        engine: isLegacyProfile
+          ? env.ODBC_ENGINE?.trim() || DEFAULT_ENGINE
+          : env[profileEnvKey(profileName, "ENGINE")]?.trim() || DEFAULT_ENGINE,
+        dsn: isLegacyProfile
+          ? readRequired(env, "ODBC_DSN", profileName)
+          : readRequired(env, profileEnvKey(profileName, "DSN"), profileName),
+        user: isLegacyProfile
+          ? readRequired(env, "ODBC_USER", profileName)
+          : readRequired(env, profileEnvKey(profileName, "USER"), profileName),
+        password: isLegacyProfile
+          ? readRequired(env, "ODBC_PASSWORD", profileName)
+          : readRequired(env, profileEnvKey(profileName, "PASSWORD"), profileName),
+        readOnly: true,
+        maxRows: isLegacyProfile
+          ? parseNumber(env.ODBC_MAX_ROWS, DEFAULT_MAX_ROWS)
+          : parseNumber(env[profileEnvKey(profileName, "MAX_ROWS")], DEFAULT_MAX_ROWS),
+        timeoutMs: isLegacyProfile
+          ? parseNumber(env.ODBC_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)
+          : parseNumber(env[profileEnvKey(profileName, "TIMEOUT_MS")], DEFAULT_TIMEOUT_MS),
+        isDefault: profileName === defaultProfileName,
+      };
+
+      profiles.set(profileName, profile);
+    } catch (error) {
+      // ponytail: um perfil mal configurado nao pode derrubar os demais.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Ignoring profile "${profileName}": ${message}`);
+    }
   }
 
-  if (defaultProfileName && !profiles.has(defaultProfileName)) {
-    throw new Error(`Default profile not found: ${defaultProfileName}`);
+  let effectiveDefaultProfileName = defaultProfileName;
+  if (effectiveDefaultProfileName && !profiles.has(effectiveDefaultProfileName)) {
+    console.error(
+      `Default profile "${effectiveDefaultProfileName}" is invalid or missing; continuing without a default profile.`,
+    );
+    effectiveDefaultProfileName = undefined;
+  }
+
+  if (profiles.size === 0) {
+    throw new Error("No valid profiles configured");
   }
 
   return {
-    defaultProfileName,
+    defaultProfileName: effectiveDefaultProfileName,
     legacyMode: legacyProfileConfigured,
-    profileNames: uniqueNames,
+    profileNames: [...profiles.keys()].sort(),
     profiles,
   };
 }
