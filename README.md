@@ -38,12 +38,13 @@ Tools principais:
 - Toda execução é tratada como `read-only`.
 - Logs de auditoria guardam hash e resumo da query, nunca o texto completo.
 - Para reduzir exposição, prefira usar um arquivo externo definido por `MCP_ODBC_ENV_FILE` em vez de um `.env` dentro do repositório.
+- **O `.env` (ou o arquivo apontado por `MCP_ODBC_ENV_FILE`) é a única fonte de credenciais.** O servidor sempre conecta passando `UID=`/`PWD=` explícitos a partir dele, o que sobrepõe qualquer `UserID=`/`Password=` que exista no `odbc.ini` — por isso o `odbc.ini` deste repositório não guarda usuário/senha, só topologia (host, porta, database) e o driver. Trocar a senha de um perfil é sempre uma edição no `.env`, nunca no `odbc.ini`.
 
 ## Pré-requisitos locais
 
 - Node.js 21+
 - `unixODBC` instalado no host quando a execução for fora de container
-- DSNs válidos em `odbc.ini` e, quando necessário, drivers registrados em `odbcinst.ini`
+- DSNs válidos em `odbc.ini` (sem credenciais — veja Segurança) e, quando necessário, drivers registrados em `odbcinst.ini`
 
 ## Configuração local
 

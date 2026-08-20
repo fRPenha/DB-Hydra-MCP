@@ -138,6 +138,44 @@ test("createProfileRegistry enforces read-only even if false is configured", () 
   assert.equal(registry.profiles.get("portal_backend_hml")?.readOnly, true);
 });
 
+test("createProfileRegistry isolates an invalid profile instead of crashing all profiles", () => {
+  const registry = createProfileRegistry({
+    MCP_ODBC_PROFILE_NAMES: "broken_profile,portal_backend_hml",
+    MCP_ODBC_DEFAULT_PROFILE: "portal_backend_hml",
+    // broken_profile is missing DSN/USER/PASSWORD on purpose.
+    MCP_ODBC_PROFILE_PORTAL_BACKEND_HML_DSN: "Portal-HML",
+    MCP_ODBC_PROFILE_PORTAL_BACKEND_HML_USER: "portal-user",
+    MCP_ODBC_PROFILE_PORTAL_BACKEND_HML_PASSWORD: "portal-password",
+  });
+
+  assert.deepEqual(registry.profileNames, ["portal_backend_hml"]);
+  assert.equal(registry.profiles.has("broken_profile"), false);
+  assert.equal(registry.profiles.has("portal_backend_hml"), true);
+  assert.equal(registry.defaultProfileName, "portal_backend_hml");
+});
+
+test("createProfileRegistry drops an invalid default profile without crashing", () => {
+  const registry = createProfileRegistry({
+    MCP_ODBC_PROFILE_NAMES: "broken_default,portal_backend_hml",
+    MCP_ODBC_DEFAULT_PROFILE: "broken_default",
+    MCP_ODBC_PROFILE_PORTAL_BACKEND_HML_DSN: "Portal-HML",
+    MCP_ODBC_PROFILE_PORTAL_BACKEND_HML_USER: "portal-user",
+    MCP_ODBC_PROFILE_PORTAL_BACKEND_HML_PASSWORD: "portal-password",
+  });
+
+  assert.equal(registry.defaultProfileName, undefined);
+  assert.deepEqual(registry.profileNames, ["portal_backend_hml"]);
+});
+
+test("createProfileRegistry throws only when no profile is valid at all", () => {
+  assert.throws(
+    () => createProfileRegistry({
+      MCP_ODBC_PROFILE_NAMES: "broken_profile",
+    }),
+    /No valid profiles configured/,
+  );
+});
+
 test("enforceReadOnlyPolicy rejects mutating SQL statements", () => {
   assert.throws(
     () => enforceReadOnlyPolicy("oracle_erp_hml", "update pnf set campo = 1"),
