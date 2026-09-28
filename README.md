@@ -256,6 +256,8 @@ Regras operacionais:
 - Nunca solicite `user`, `password`, DSN completo ou conteúdo do `.env`.
 - Considere que todos os perfis são `read-only` — uma tentativa de `insert`/`update`/`delete`/`drop`/etc. é rejeitada pelo servidor antes de chegar ao banco.
 - Em caso de dúvida sobre um campo de negócio, use `describe_table` antes da query.
+- Prefira `format: "tsv"` para a saída mais compacta. Em todos os formatos, strings vêm sem o padding à direita de campos CHAR e BigInt vira número (ou string, se passar do intervalo seguro).
+- Em `describe_table`, o `schema` é opcional; no Oracle a consulta usa `ALL_TAB_COLUMNS`.
 
 Exemplo de chamada:
 

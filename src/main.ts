@@ -352,25 +352,37 @@ server.tool(
 server.tool(
   "describe_table",
   "Retrieve and return a definition of a table, including column names, data types, nullable, autoincrement, primary key, and foreign keys.",
-  { schema: z.string(), table: z.string(), ...profileParam, ...formatParam },
+  { schema: z.string().optional(), table: z.string(), ...profileParam, ...formatParam },
   async ({ schema, table, profile, format = "json" }) =>
     executeRowsTool({
       toolName: "describe_table",
       profileName: profile,
       format,
-      auditQuery: `metadata:describe_table:${schema}.${table}`,
-      operation: async (connection) => {
+      auditQuery: `metadata:describe_table:${schema ?? "*"}.${table}`,
+      operation: async (connection, profile) => {
+        // SQLColumns derruba o processo (crash nativo) com o driver Oracle; usa o dicionário.
+        if (profile.engine === "oracle") {
+          return normalizeRows(await connection.query(
+            `SELECT OWNER AS TABLE_SCHEM, TABLE_NAME, COLUMN_NAME, DATA_TYPE AS TYPE_NAME,
+                    DATA_LENGTH AS COLUMN_SIZE, DATA_SCALE AS DECIMAL_DIGITS, NULLABLE
+               FROM ALL_TAB_COLUMNS
+              WHERE TABLE_NAME = UPPER(?) AND (? = '*' OR OWNER = UPPER(?))
+              ORDER BY OWNER, COLUMN_ID`,
+            [table, schema ?? "*", schema ?? "*"],
+          ));
+        }
+
         const hasCatalogs = await supportsCatalogs(connection);
         return hasCatalogs
-          ? normalizeRows(await connection.columns(schema, null, table, null))
-          : normalizeRows(await connection.columns(null, schema, table, null));
+          ? normalizeRows(await connection.columns(schema ?? null, null, table, null))
+          : normalizeRows(await connection.columns(null, schema ?? null, table, null));
       },
     }),
 );
 
 server.tool(
   "query_database",
-  "Execute a SQL query and return results in JSON, JSONL or MD format.",
+  "Execute a SQL query and return results in JSON, JSONL, MD or TSV format. Prefer tsv for the most compact output.",
   { query: z.string(), ...profileParam, ...formatParam },
   async ({ query, profile, format = "json" }) =>
     executeQueryTool({
