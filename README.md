@@ -159,9 +159,9 @@ PostgreSQL:
 [postgres_portal_hml]
 Driver=PostgreSQL Unicode
 Description=Portal PostgreSQL HML
-Servername=10.10.48.122
+Servername=postgres.exemplo.com.br
 Port=5432
-Database=portal_agentes
+Database=portal
 SSLmode=prefer
 ```
 
