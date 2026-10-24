@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: db-hydra-mcp:local
     container_name: db-hydra-mcp
     init: true
     restart: unless-stopped

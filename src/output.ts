@@ -69,5 +69,5 @@ export function sanitizeErrorMessage(error: unknown): string {
   return raw
     .replace(/DSN=.*?(?=;|$)/gi, "DSN=[redacted]")
     .replace(/UID=.*?(?=;|$)/gi, "UID=[redacted]")
-    .replace(/PWD=.*?(?=;|$)/gi, "PWD=[redacted]");
+    .replace(/PWD=.*/gis, "PWD=[redacted]");
 }

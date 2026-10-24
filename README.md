@@ -35,7 +35,11 @@ Tools principais:
 
 - O agente não deve receber `user`, `password` ou DSN como argumento de tool.
 - `describe_profile` expõe apenas metadados seguros.
-- Toda execução é tratada como `read-only`, mesmo que o perfil configure o contrário.
+- Toda execução é tratada como `read-only`, mesmo que o perfil configure o contrário. São duas camadas:
+  1. Validador léxico (`src/security.ts`): aceita um único `SELECT`/`WITH`; recusa palavras que escrevem, travam ou mudam a sessão (`INTO`, `FOR UPDATE`, `SET`, `COPY`, `SHOW`…), funções e objetos de arquivo, rede e credencial (`pg_read_file`, `lo_*`, `dblink`, `DBMS_*`, `UTL_*`, `sys.user$`, `pg_authid`, `mysql.user`, `LOAD_FILE`…), sintaxes alternativas de string (`q'`, `$$`, `E'`, `/*!`) e database links (`@`). Em dúvida, recusa.
+  2. Transação somente leitura: cada `query_database*` roda dentro de `SET TRANSACTION READ ONLY` e termina em `ROLLBACK`. Engine sem suporte é recusada.
+- Limites: com usuário de banco que tem privilégio de escrita (ex.: `SIGA`, `postgres`), as camadas reduzem o risco, mas não o eliminam. Uma função Oracle com `PRAGMA AUTONOMOUS_TRANSACTION` chamada no `SELECT` escapa da transação. A barreira definitiva é um usuário somente leitura no banco.
+- Qualquer fluxo de escrita (CRUD) exige avaliação de segurança própria antes de ser implementado; não basta afrouxar o validador.
 - Logs de auditoria guardam hash e resumo da query, nunca o texto completo.
 - Para reduzir exposição, prefira usar um arquivo externo definido por `MCP_ODBC_ENV_FILE` em vez de um `.env` dentro do repositório.
 - **O `.env` (ou o arquivo apontado por `MCP_ODBC_ENV_FILE`) é a única fonte de credenciais.** O servidor sempre conecta passando `UID=`/`PWD=` explícitos a partir dele, o que sobrepõe qualquer `UserID=`/`Password=` que exista no `odbc.ini` — por isso o `odbc.ini` deste repositório não guarda usuário/senha, só topologia (host, porta, database) e o driver. Trocar a senha de um perfil é sempre uma edição no `.env`, nunca no `odbc.ini`.
@@ -159,9 +163,9 @@ PostgreSQL:
 [postgres_portal_hml]
 Driver=PostgreSQL Unicode
 Description=Portal PostgreSQL HML
-Servername=10.10.48.122
+Servername=postgres.exemplo.com.br
 Port=5432
-Database=portal_agentes
+Database=portal
 SSLmode=prefer
 ```
 

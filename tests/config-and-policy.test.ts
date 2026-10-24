@@ -191,6 +191,66 @@ test("enforceReadOnlyPolicy rejects mutating SQL statements", () => {
   );
 });
 
+test("enforceReadOnlyPolicy blocks bypasses of the old blacklist", () => {
+  const blocked: Array<[string, string]> = [
+    ["postgresql", "COPY (select 1) TO PROGRAM 'id'"],
+    ["postgresql", "select pg_read_file('/etc/passwd')"],
+    ["postgresql", "select pg_ls_dir('.')"],
+    ["postgresql", "select lo_export(1, '/tmp/x')"],
+    ["postgresql", "select set_config('x', 'y', false)"],
+    ["postgresql", "select pg_terminate_backend(1)"],
+    ["postgresql", "select * from pg_authid"],
+    ["postgresql", "select * from \"pg_shadow\""],
+    ["postgresql", "select $$x$$"],
+    ["postgresql", "select E'\\x27'"],
+    ["postgresql", "select query_to_xml('select 1', true, true, '')"],
+    ["postgresql", "select * from dblink('x', 'select 1') as t(a int)"],
+    ["postgresql", "select 1 for share"],
+    ["postgresql", "select * into nova from t"],
+    ["postgresql", "SET ROLE postgres"],
+    ["postgresql", "LOCK TABLE t"],
+    ["postgresql", "select 1; drop table t"],
+    ["postgresql", "select 1 /* sem fim"],
+    ["postgresql", "select 'sem fim"],
+    ["mariadb", "SHOW GRANTS"],
+    ["mariadb", "select 1 into outfile '/tmp/x'"],
+    ["mariadb", "select load_file('/etc/passwd')"],
+    ["mariadb", "select sleep(10)"],
+    ["mariadb", "select * from mysql.user"],
+    ["mariadb", "select 1 /*! ; drop table t */"],
+    ["postgresql", "select 'a\\'; drop table t; -- '"],
+    ["mariadb", "select 1 # comentario"],
+    ["mariadb", "KILL 1"],
+    ["oracle", "select q'[x]' from dual"],
+    ["oracle", "select * from sys.user$"],
+    ["oracle", "select name, password from dba_users"],
+    ["oracle", "select dbms_xmlgen.getxml('select 1 from dual') from dual"],
+    ["oracle", "select utl_http.request('http://x') from dual"],
+    ["oracle", "select * from t@outro_banco"],
+    ["oracle", "select * from sa1010 for update"],
+    ["oracle", "begin null; end;"],
+  ];
+  for (const [engine, query] of blocked) {
+    assert.throws(() => enforceReadOnlyPolicy("p", query, engine), /read-only/i, query);
+  }
+});
+
+test("enforceReadOnlyPolicy accepts ordinary Protheus and metadata reads", () => {
+  const allowed: Array<[string, string]> = [
+    ["oracle", "select sysdate from dual"],
+    ["oracle", "SELECT /*+ INDEX(SA1 SA10101) */ A1_COD FROM SA1010 SA1 WHERE ROWNUM <= 10;"],
+    ["oracle", "select a.e1_num from se1010 a, sa1010 b where a.e1_cliente = b.a1_cod(+) and a.d_e_l_e_t_ = ' '"],
+    ["oracle", "select count(*) from v$session"],
+    ["oracle", "select replace(a1_nome, 'x', 'y') from sa1010 where a1_nome like '%DELETE%'"],
+    ["oracle", "with x as (select 1 n from dual) select n from x"],
+    ["postgresql", "select table_name from information_schema.tables -- update\n"],
+    ["mariadb", "select `ID`, 'it''s' from MACHINE limit 5"],
+  ];
+  for (const [engine, query] of allowed) {
+    assert.doesNotThrow(() => enforceReadOnlyPolicy("p", query, engine), query);
+  }
+});
+
 test("hashQuerySummary and buildAuditEntry avoid leaking raw query text", () => {
   const query = "select * from pnf where chave = '123'";
   const hash = hashQuerySummary(query);
