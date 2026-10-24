@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatRows } from "../src/output.ts";
+import { formatRows, sanitizeErrorMessage } from "../src/output.ts";
 
 const rows = [{ ID: 374510n, NOME: "LARYSSA   ", OBS: "a\tb\nc" }];
 
@@ -16,4 +16,9 @@ test("BigInt fora do intervalo seguro vira string", () => {
 test("tsv compacto com cabeçalho e sem quebras dentro da célula", () => {
   assert.equal(formatRows(rows, "tsv"), "ID\tNOME\tOBS\n374510\tLARYSSA\ta b c");
   assert.equal(formatRows([], "tsv"), "No results found.");
+});
+
+test("sanitizeErrorMessage oculta senha com ponto e vírgula", () => {
+  const msg = sanitizeErrorMessage(new Error("falha DSN=x;UID=u;PWD=ab;cd;ef"));
+  assert.doesNotMatch(msg, /ab|cd|ef/);
 });

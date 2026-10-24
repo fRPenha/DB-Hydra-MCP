@@ -188,6 +188,28 @@ async function executeRowsTool({
   }
 }
 
+const READ_ONLY_TRANSACTION: Record<string, string> = {
+  oracle: "SET TRANSACTION READ ONLY",
+  postgresql: "SET TRANSACTION READ ONLY",
+  mariadb: "SET TRANSACTION READ ONLY",
+};
+
+// Second layer after enforceReadOnlyPolicy: the database itself refuses writes.
+// Oracle autonomous transactions inside called functions still escape it.
+async function queryReadOnly(connection: odbc.Connection, engine: string, query: string) {
+  const setup = READ_ONLY_TRANSACTION[engine.toLowerCase()];
+  if (!setup) {
+    throw new Error(`Engine ${engine} has no read-only transaction support`);
+  }
+  await connection.beginTransaction();
+  try {
+    await connection.query(setup);
+    return await connection.query(query);
+  } finally {
+    await connection.rollback().catch(() => undefined);
+  }
+}
+
 async function executeQueryTool({
   toolName,
   profileName,
@@ -200,9 +222,9 @@ async function executeQueryTool({
   try {
     const profile = resolveProfileSelection(profileRegistry, profileName);
     auditProfileName = profile.name;
-    enforceReadOnlyPolicy(profile.name, query);
+    enforceReadOnlyPolicy(profile.name, query, profile.engine);
     const rows = await withProfileConnection(profile, toolName, async (connection) => {
-      const result = await connection.query(query);
+      const result = await queryReadOnly(connection, profile.engine, query);
       return clampRows(normalizeRows(result), profile.maxRows);
     });
 
